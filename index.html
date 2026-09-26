@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Washington Live Flight Radar</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #121212;
+        }
+
+        /* Left Active Flights List */
+        #sidebar-left {
+            width: 300px;
+            background-color: #1e1e24;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+
+        #sidebar-header {
+            padding: 20px;
+            background-color: #141418;
+            border-bottom: 1px solid #333;
+        }
+
+        #sidebar-header h2 { margin: 0 0 5px 0; font-size: 1.2rem; color: #00d2ff; }
+        #sidebar-header p { margin: 0; font-size: 0.8rem; color: #aaa; }
+
+        #flight-list {
+            flex: 1;
+            overflow-y: auto;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .flight-item {
+            padding: 12px 20px;
+            border-bottom: 1px solid #2a2a32;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .flight-item:hover { background-color: #2a2a35; }
+        .flight-callsign { font-weight: bold; color: #4facfe; }
+        .flight-alt { font-size: 0.85rem; color: #bbb; }
+
+        /* Map Container */
+        #map { flex: 1; height: 100vh; }
+
+        /* Right Detail Drawer (Hidden by default) */
+        #sidebar-right {
+            position: absolute;
+            right: -350px; /* Hide off-screen */
+            top: 0;
+            width: 320px;
+            height: 100vh;
+            background-color: #1e1e24;
+            color: #ffffff;
+            box-shadow: -2px 0 12px rgba(0,0,0,0.5);
+            z-index: 2000;
+            transition: right 0.3s ease-in-out;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #sidebar-right.active {
+            right: 0; /* Slide in */
+        }
+
+        #details-header {
+            padding: 20px;
+            background-color: #141418;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #details-header h3 { margin: 0; color: #00d2ff; font-size: 1.3rem; }
+        .close-btn {
+            background: none;
+            border: none;
+            color: #aaa;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        .close-btn:hover { color: #fff; }
+
+        #details-content {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .detail-card {
+            background-color: #282830;
+            padding: 12px;
+            border-radius: 6px;
+        }
+
+        .detail-label { font-size: 0.75rem; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+        .detail-value { font-size: 1.1rem; font-weight: 600; color: #fff; }
+
+        /* Aircraft Icon Styling */
+        .plane-icon {
+            transition: transform 0.3s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Left Sidebar: Active Flights -->
+<div id="sidebar-left">
+    <div id="sidebar-header">
+        <h2>Washington Airspace Radar</h2>
+        <p id="plane-count">Loading live flights...</p>
+    </div>
+    <ul id="flight-list"></ul>
+</div>
+
+<!-- Map Area -->
+<div id="map"></div>
+
+<!-- Right Sidebar: Selected Flight Details -->
+<div id="sidebar-right">
+    <div id="details-header">
+        <h3 id="detail-callsign">AIRCRAFT INFO</h3>
+        <button class="close-btn" onclick="closeRightSidebar()">&times;</button>
+    </div>
+    <div id="details-content">
+        <div class="detail-card">
+            <div class="detail-label">Origin Country</div>
+            <div class="detail-value" id="detail-country">-</div>
+        </div>
+        <div class="detail-card">
+            <div class="detail-label">Altitude</div>
+            <div class="detail-value" id="detail-altitude">-</div>
+        </div>
+        <div class="detail-card">
+            <div class="detail-label">Velocity / Speed</div>
+            <div class="detail-value" id="detail-velocity">-</div>
+        </div>
+        <div class="detail-card">
+            <div class="detail-label">Coordinates</div>
+            <div class="detail-value" id="detail-coords">-</div>
+        </div>
+        <div class="detail-card">
+            <div class="detail-label">Heading Track</div>
+            <div class="detail-value" id="detail-track">-</div>
+        </div>
+        <div class="detail-card">
+            <div class="detail-label">Vertical Rate</div>
+            <div class="detail-value" id="detail-vrate">-</div>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    // Initialize Map view centered over the USA
+    const map = L.map('map').setView([47.35, -120.85], 7);
+
+    L.tileLayer('https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3zfg_1_a77385d521f346b57c8f81c6', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        maxZoom: 19
+    }).addTo(map);
+
+    const markers = {};
+    let currentSelectedFlight = null;
+
+    // Generate Rotated SVG Aircraft Icon
+    function createAirplaneIcon(heading) {
+        const svgIcon = `
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="#007acc" xmlns="http://www.w3.org/2000/svg" style="transform: rotate(${heading}deg);">
+                    <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/>
+                </svg>`;
+        return L.divIcon({
+            html: svgIcon,
+            className: 'plane-icon',
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+        });
+    }
+
+    // Open Right Sidebar & Populate Details
+    function selectFlight(flight) {
+        currentSelectedFlight = flight.Callsign;
+
+        document.getElementById('detail-callsign').innerText = flight.Callsign;
+        document.getElementById('detail-country').innerText = flight.Country;
+        document.getElementById('detail-altitude').innerText = flight.Altitude;
+        document.getElementById('detail-velocity').innerText = flight.Velocity;
+        document.getElementById('detail-vrate').innerText = flight.VerticalRate;
+        document.getElementById('detail-coords').innerText = `${flight.Latitude}°, ${flight.Longitude}°`;
+        document.getElementById('detail-track').innerText = `${Math.round(flight.Track)}°`;
+
+        document.getElementById('sidebar-right').classList.add('active');
+        map.flyTo([flight.Latitude, flight.Longitude], Math.max(map.getZoom(), 7));
+    }
+
+    // Close Right Sidebar
+    function closeRightSidebar() {
+        document.getElementById('sidebar-right').classList.remove('active');
+        currentSelectedFlight = null;
+    }
+
+    async function updateRadar() {
+        try {
+            const response = await fetch('flight_data.json?t=' + new Date().getTime());
+            const flights = await response.json();
+
+            const listContainer = document.getElementById('flight-list');
+            const countText = document.getElementById('plane-count');
+
+            countText.innerText = `Active Aircraft: ${flights.length}`;
+            listContainer.innerHTML = '';
+
+            flights.forEach(flight => {
+                const id = flight.Callsign;
+                const newIcon = createAirplaneIcon(flight.Track);
+
+                // 1. Render Left Sidebar List Entry
+                const li = document.createElement('li');
+                li.className = 'flight-item';
+                li.innerHTML = `
+                        <span class="flight-callsign">${id}</span>
+                        <span class="flight-alt">${flight.Altitude}</span>
+                    `;
+                li.onclick = () => selectFlight(flight);
+                listContainer.appendChild(li);
+
+                // 2. Add or Update Map Markers
+                if (markers[id]) {
+                    markers[id].setLatLng([flight.Latitude, flight.Longitude]);
+                    markers[id].setIcon(newIcon);
+                } else {
+                    markers[id] = L.marker([flight.Latitude, flight.Longitude], { icon: newIcon })
+                        .addTo(map);
+                }
+
+                // Click event on map marker opens the right panel
+                markers[id].off('click');
+                markers[id].on('click', () => selectFlight(flight));
+
+                // Live update right panel data if this aircraft is currently selected
+                if (currentSelectedFlight === id) {
+                    selectFlight(flight);
+                }
+            });
+        } catch (error) {
+            console.log("Waiting for flight data update...", error);
+        }
+    }
+
+    updateRadar();
+    setInterval(updateRadar, 5000);
+</script>
+</body>
+</html>
