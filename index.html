@@ -177,13 +177,23 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-    // Initialize Map view centered over the USA
+    // Initialize Map view centered over Washington State
     const map = L.map('map').setView([47.35, -120.85], 7);
 
-    L.tileLayer('https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=cb1_3zfg_1_a77385d521f346b57c8f81c6', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        maxZoom: 19
-    }).addTo(map);
+    async function fetchMapTiles() {
+        try {
+            const response = await fetch('Carto_Credentials.json');
+            const data = await response.json();
+            L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${data.key}`, {
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
+                maxZoom: 19
+            }).addTo(map);
+        } catch (error) {
+            console.error("Error fetching map tiles:", error);
+        }
+    }
+
+    fetchMapTiles();
 
     const markers = {};
     let currentSelectedFlight = null;
